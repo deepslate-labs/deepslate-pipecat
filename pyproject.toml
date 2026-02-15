@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deepslate-pipecat"
+version = "0.1.0"
+description = "Pipecat plugin for deepslate.eu"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.10.0",
+    "pipecat-ai>=0.0.40",
+    "protobuf>=5.26.0",
+    "loguru>=0.7.2"
+]
+keywords = ["voice", "ai", "realtime", "audio", "pipecat", "deepslate"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.urls]
+Documentation = "https://docs.deepslate.eu/"
+Website = "https://deepslate.eu/"
+Source = "https://github.com/rooms-solutions/deepslate-pipecat"
+
+[tool.hatch.version]
+# You will need to create a simple version.py file here containing `__version__ = "0.1.0"`
+path = "deepslate/pipecat/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["deepslate"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/deepslate"]
+
+[tool.hatch.build.hooks.custom]
+path = "build-src/build.py"
+dependencies = ["requests>=2.0.0,<3"]
+
+[tool.hatch.build.hooks.protobuf]
+dependencies = ["hatch-protobuf"]
+proto_paths = ["deepslate/pipecat/proto"]
+output_path = "deepslate/pipecat/proto"
+generate_grpc = false
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.9",
+]
+examples = [
+    "pipecat-ai[daily]>=0.0.40",
+    "python-dotenv>=1.0.0",
+]
