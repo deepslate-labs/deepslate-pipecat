@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import aiohttp
 from loguru import logger
@@ -17,6 +17,7 @@ from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     LLMMessagesUpdateFrame,
+    LLMSetToolsFrame,
     LLMTextFrame,
     StartFrame,
     TextFrame,
@@ -26,6 +27,7 @@ from pipecat.services.ai_services import LLMService
 
 from .options import DeepslateOptions, DeepslateVadConfig, ElevenLabsTtsConfig
 from .proto import realtime_pb2 as proto
+from .utils import dict_to_struct, struct_to_dict, duration_from_ms, build_ws_url
 
 
 class DeepslateRealtimeLLMService(LLMService):
@@ -52,6 +54,7 @@ class DeepslateRealtimeLLMService(LLMService):
         self._main_task: Optional[asyncio.Task] = None
         self._session_initialized = False
         self._should_stop = False
+        self._tools: List[dict] = []
 
         # Audio configuration tracking
         self._detected_sample_rate: Optional[int] = None
@@ -122,9 +125,8 @@ class DeepslateRealtimeLLMService(LLMService):
         """Establish the WebSocket connection to Deepslate."""
         url = self._opts.ws_url
         if not url:
-            # Construct standard URL
-            base_ws = self._opts.base_url.replace("https://", "wss://").replace("http://", "ws://")
-            url = f"{base_ws}/api/v1/vendors/{self._opts.vendor_id}/organizations/{self._opts.organization_id}/realtime"
+            # Construct standard URL using utility function
+            url = build_ws_url(self._opts.base_url, self._opts.vendor_id, self._opts.organization_id)
 
         headers = {"User-Agent": "PipecatDeepslate/1.0"}
         if self._opts.api_key:
@@ -178,6 +180,12 @@ class DeepslateRealtimeLLMService(LLMService):
             # When a function finishes in Pipecat, we pass it back to Deepslate
             await self._handle_function_result(frame)
 
+        elif isinstance(frame, LLMSetToolsFrame):
+            # Capture tool definitions and sync with server
+            self._tools = frame.tools
+            if self._session_initialized:
+                await self._sync_tools()
+
         elif isinstance(frame, LLMMessagesUpdateFrame):
             # Used to update context/system prompts dynamically
             pass # TODO
@@ -185,6 +193,23 @@ class DeepslateRealtimeLLMService(LLMService):
         else:
             # Pass unhandled frames downstream (e.g. Stop frames)
             await self.push_frame(frame, direction)
+
+    async def _sync_tools(self):
+        """Syncs tool definitions with the Deepslate server."""
+        if not self._ws or not self._tools:
+            return
+
+        tool_definitions = []
+        for tool in self._tools:
+            func = tool.get("function", {})
+            tool_definitions.append(proto.ToolDefinition(
+                name=func.get("name"),
+                description=func.get("description", ""),
+                parameters=dict_to_struct(func.get("parameters", {}))
+            ))
+
+        update_request = proto.UpdateToolDefinitionsRequest(tool_definitions=tool_definitions)
+        await self._send_msg(proto.ServiceBoundMessage(update_tool_definitions_request=update_request))
 
     async def _handle_audio_input(self, frame: AudioRawFrame):
         """Forward PCM audio from Pipecat to Deepslate."""
@@ -256,9 +281,6 @@ class DeepslateRealtimeLLMService(LLMService):
     async def _send_initialize_session(self):
         """Constructs and sends the initialize payload based on config."""
 
-        def _duration(ms: int):
-            return proto.Duration(seconds=ms // 1000, nanos=(ms % 1000) * 1000000)
-
         tts_config = None
         if self._tts_config:
             el_config = proto.ElevenLabsTtsConfiguration(
@@ -283,9 +305,9 @@ class DeepslateRealtimeLLMService(LLMService):
             vad_configuration=proto.VadConfiguration(
                 confidence_threshold=self._vad_config.confidence_threshold,
                 min_volume=self._vad_config.min_volume,
-                start_duration=_duration(self._vad_config.start_duration_ms),
-                stop_duration=_duration(self._vad_config.stop_duration_ms),
-                backbuffer_duration=_duration(self._vad_config.backbuffer_duration_ms),
+                start_duration=duration_from_ms(self._vad_config.start_duration_ms),
+                stop_duration=duration_from_ms(self._vad_config.stop_duration_ms),
+                backbuffer_duration=duration_from_ms(self._vad_config.backbuffer_duration_ms),
             ),
             inference_configuration=proto.InferenceConfiguration(
                 system_prompt=self._opts.system_prompt,
@@ -295,6 +317,10 @@ class DeepslateRealtimeLLMService(LLMService):
 
         msg = proto.ServiceBoundMessage(initialize_session_request=init_request)
         await self._send_msg(msg)
+
+        # Sync tools after initialization
+        if self._tools:
+            await self._sync_tools()
 
     async def _send_msg(self, msg: proto.ServiceBoundMessage):
         """Helper to serialize and push the Proto down the websocket."""
@@ -360,22 +386,12 @@ class DeepslateRealtimeLLMService(LLMService):
 
         elif payload_type == "tool_call_request":
             req = msg.tool_call_request
-
-            # Convert protobuf struct to JSON dict string (Pipecat expects JSON strings for args)
-            args_json = "{}"
-            if req.HasField("parameters"):
-                # Ideally, parse struct to dict here. Using a simplistic approach:
-                from google.protobuf.json_format import MessageToDict
-                args_dict = MessageToDict(req.parameters)
-                # Since Deepslate maps them into a "fields" container sometimes:
-                if "fields" in args_dict:
-                    args_dict = {k: v.get('stringValue', v) for k, v in args_dict["fields"].items()}
-                args_json = json.dumps(args_dict)
+            args_dict = struct_to_dict(req.parameters) if req.HasField("parameters") else {}
 
             await self.push_frame(
                 FunctionCallRequestFrame(
                     tool_call_id=req.id,
                     function_name=req.name,
-                    arguments=args_json
+                    arguments=json.dumps(args_dict)
                 )
             )
