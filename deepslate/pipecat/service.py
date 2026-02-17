@@ -168,6 +168,7 @@ class DeepslateRealtimeLLMService(LLMService):
 
     async def process_frame(self, frame: Frame, direction: Any):
         """Handle incoming frames from the Pipecat pipeline."""
+        await super().process_frame(frame, direction)
 
         if isinstance(frame, AudioRawFrame):
             await self._handle_audio_input(frame)
@@ -190,9 +191,6 @@ class DeepslateRealtimeLLMService(LLMService):
             # Used to update context/system prompts dynamically
             pass # TODO
 
-        else:
-            # Pass unhandled frames downstream (e.g. Stop frames)
-            await self.push_frame(frame, direction)
 
     async def _sync_tools(self):
         """Syncs tool definitions with the Deepslate server."""
@@ -358,10 +356,8 @@ class DeepslateRealtimeLLMService(LLMService):
             # Push LLM Text for transcript logs/history
             await self.push_frame(LLMTextFrame(text))
 
-            # If we don't have Server side TTS configured, push TTSText
-            # so a downstream Pipecat TTS service (like Cartesia/ElevenLabs plugins) can pick it up
-            if not self._tts_config:
-                await self.push_frame(TTSTextFrame(text))
+            # Note: We don't push TTSTextFrame here because Deepslate handles TTS server-side
+            # and sends back audio chunks via model_audio_chunk
 
         elif payload_type == "model_audio_chunk":
             audio_bytes = msg.model_audio_chunk.audio.data
