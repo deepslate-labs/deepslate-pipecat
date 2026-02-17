@@ -23,7 +23,7 @@ from pipecat.frames.frames import (
     TextFrame,
     TTSTextFrame
 )
-from pipecat.services.ai_services import LLMService
+from pipecat.services.llm_service import LLMService
 
 from .options import DeepslateOptions, DeepslateVadConfig, ElevenLabsTtsConfig
 from .proto import realtime_pb2 as proto
