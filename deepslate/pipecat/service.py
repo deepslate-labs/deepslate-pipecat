@@ -12,7 +12,7 @@ from pipecat.frames.frames import (
     ErrorFrame,
     Frame,
     InterruptionFrame,
-    FunctionCallRequestFrame,
+    FunctionCallInProgressFrame,
     FunctionCallResultFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
@@ -389,7 +389,7 @@ class DeepslateRealtimeLLMService(LLMService):
             args_dict = struct_to_dict(req.parameters) if req.HasField("parameters") else {}
 
             await self.push_frame(
-                FunctionCallRequestFrame(
+                FunctionCallInProgressFrame(
                     tool_call_id=req.id,
                     function_name=req.name,
                     arguments=json.dumps(args_dict)

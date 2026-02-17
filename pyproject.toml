@@ -12,7 +12,8 @@ dependencies = [
     "aiohttp>=3.10.0",
     "pipecat-ai>=0.0.40",
     "protobuf>=5.26.0",
-    "loguru>=0.7.2"
+    "loguru>=0.7.2",
+    "websockets>=16.0"
 ]
 keywords = ["voice", "ai", "realtime", "audio", "pipecat", "deepslate"]
 classifiers = [
@@ -50,7 +51,7 @@ proto_paths = ["deepslate/pipecat/proto"]
 output_path = "deepslate/pipecat/proto"
 generate_grpc = false
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "ruff>=0.14.9",
 ]
