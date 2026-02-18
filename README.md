@@ -664,46 +664,6 @@ python examples/simple_bot.py
 
 This example includes ElevenLabs TTS and tool call implementations and serves as the recommended starting point for new integrations.
 
-## Architecture
-
-### Component Overview
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Pipecat Pipeline                        │
-│                                                              │
-│  ┌──────────────┐   ┌────────────────────┐   ┌───────────┐ │
-│  │   Transport  │──▶│  Deepslate Service │──▶│ Transport │ │
-│  │   Input      │   │  (LLMService)      │   │  Output   │ │
-│  │ (AudioRaw)   │   │                    │   │(AudioRaw) │ │
-│  └──────────────┘   └────────────────────┘   └───────────┘ │
-│                              │                               │
-└──────────────────────────────┼───────────────────────────────┘
-                               │
-                               │ WebSocket (Protobuf)
-                               │
-                    ┌──────────▼──────────┐
-                    │  Deepslate Backend  │
-                    │                     │
-                    │  ┌───────────────┐  │
-                    │  │   STT (VAD)   │  │
-                    │  ├───────────────┤  │
-                    │  │      LLM      │  │
-                    │  ├───────────────┤  │
-                    │  │  TTS (11Labs) │  │
-                    │  └───────────────┘  │
-                    └─────────────────────┘
-```
-
-### Data Flow
-
-1. **Audio Input**: Transport captures user audio → `AudioRawFrame` → Deepslate Service
-2. **WebSocket Upload**: Service sends protobuf `UserInput` with PCM data to Deepslate
-3. **Server Processing**: Deepslate performs VAD, STT, LLM inference, and TTS
-4. **Response Streaming**: Deepslate streams back text fragments and/or audio chunks
-5. **Frame Emission**: Service converts protobuf messages to Pipecat frames
-6. **Audio Output**: Frames flow through pipeline to transport → user hears response
-
 ## Performance Considerations
 
 ### Latency Optimization
@@ -724,7 +684,7 @@ This example includes ElevenLabs TTS and tool call implementations and serves as
 ### Building from Source
 
 ```bash
-git clone https://github.com/rooms-solutions/deepslate-pipecat.git
+git clone https://github.com/deepslate-labs/deepslate-pipecat.git
 cd deepslate-pipecat
 pip install -e .
 ```
@@ -774,4 +734,4 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 - **Issues**: [GitHub Issues](https://github.com/rooms-solutions/deepslate-pipecat/issues)
 - **Documentation**: [docs.deepslate.eu](https://docs.deepslate.eu/)
-- **Email**: support@deepslate.eu
+- **Email**: info@deepslate.eu
