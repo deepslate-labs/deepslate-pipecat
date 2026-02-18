@@ -29,10 +29,9 @@ classifiers = [
 [project.urls]
 Documentation = "https://docs.deepslate.eu/"
 Website = "https://deepslate.eu/"
-Source = "https://github.com/rooms-solutions/deepslate-pipecat"
+Source = "https://github.com/deepslate-labs/deepslate-pipecat"
 
 [tool.hatch.version]
-# You will need to create a simple version.py file here containing `__version__ = "0.1.0"`
 path = "deepslate/pipecat/version.py"
 
 [tool.hatch.build.targets.wheel]
