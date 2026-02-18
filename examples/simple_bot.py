@@ -1,14 +1,17 @@
 import asyncio
 import os
+import random
 import sys
 
 import aiohttp
 from dotenv import load_dotenv
 from loguru import logger
 
+from pipecat.frames.frames import LLMSetToolsFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 
 # Import our custom Deepslate Pipecat plugin
@@ -18,6 +21,69 @@ load_dotenv(override=True)
 
 logger.remove()
 logger.add(sys.stderr, level="DEBUG")
+
+
+# ---------------------------------------------------------------------------
+# Tool definitions (OpenAI function-calling JSON schema format)
+# ---------------------------------------------------------------------------
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_weather",
+            "description": "Get the current weather for a given location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "The city or location to look up weather for.",
+                    }
+                },
+                "required": ["location"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_location",
+            "description": "Get the user's current location.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Function handlers
+# ---------------------------------------------------------------------------
+
+async def lookup_weather(params: FunctionCallParams):
+    location = params.arguments.get("location", "unknown")
+    result = {
+        "location": location,
+        "temperature_celsius": random.randint(10, 35),
+        "precipitation": random.choice(["none", "light", "moderate", "heavy"]),
+        "air_pressure_hpa": random.randint(900, 1100),
+    }
+    logger.info(f"lookup_weather({location}) → {result}")
+    await params.result_callback(result)
+
+
+async def get_current_location(params: FunctionCallParams):
+    result = {"location": "Berlin"}
+    logger.info(f"get_current_location() → {result}")
+    await params.result_callback(result)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 async def main():
     # 1. Initialize Daily Transport
@@ -67,6 +133,10 @@ async def main():
     tts = ElevenLabsTtsConfig.from_env()
     llm = DeepslateRealtimeLLMService(options=opts, tts_config=tts)
 
+    # Register function handlers
+    llm.register_function("lookup_weather", lookup_weather)
+    llm.register_function("get_current_location", get_current_location)
+
     # 3. Build the Pipeline
     pipeline = Pipeline([
         transport.input(),
@@ -76,10 +146,12 @@ async def main():
 
     task = PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
 
+    # Sync tool definitions with Deepslate (queued after StartFrame)
+    await task.queue_frame(LLMSetToolsFrame(tools=TOOLS))
+
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant):
         logger.info(f"Participant {participant['id']} joined. Listening...")
-        # Deepslate is now listening to the participant's audio.
 
     @transport.event_handler("on_participant_left")
     async def on_participant_left(transport, participant, reason):
@@ -90,6 +162,7 @@ async def main():
     runner = PipelineRunner()
     logger.info("Starting pipeline runner...")
     await runner.run(task)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

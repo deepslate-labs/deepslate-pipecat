@@ -75,28 +75,69 @@ ELEVENLABS_MODEL_ID=eleven_turbo_v2  # optional, uses default if not set
 
 ## Quick Start
 
-Here's a complete example that creates a voice bot using Deepslate and Daily.co transport:
+Here's a complete example that creates a voice bot using Deepslate and Daily.co transport, including ElevenLabs TTS and tool calling:
 
 ```python
 import asyncio
 import os
+import random
 import sys
 
 import aiohttp
 from dotenv import load_dotenv
 from loguru import logger
 
+from pipecat.frames.frames import LLMSetToolsFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.transports.services.daily import DailyParams, DailyTransport
+from pipecat.services.llm_service import FunctionCallParams
+from pipecat.transports.daily.transport import DailyParams, DailyTransport
 
-from deepslate.pipecat import DeepslateOptions, DeepslateRealtimeLLMService
+from deepslate.pipecat import DeepslateOptions, DeepslateRealtimeLLMService, ElevenLabsTtsConfig
 
 load_dotenv(override=True)
 
 logger.remove()
 logger.add(sys.stderr, level="DEBUG")
+
+# Tool definitions (OpenAI function-calling JSON schema format)
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_weather",
+            "description": "Get the current weather for a given location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string", "description": "The city to look up."}
+                },
+                "required": ["location"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_location",
+            "description": "Get the user's current location.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
+
+async def lookup_weather(params: FunctionCallParams):
+    result = {
+        "location": params.arguments.get("location", "unknown"),
+        "temperature_celsius": random.randint(10, 35),
+        "precipitation": random.choice(["none", "light", "moderate", "heavy"]),
+        "air_pressure_hpa": random.randint(900, 1100),
+    }
+    await params.result_callback(result)
+
+async def get_current_location(params: FunctionCallParams):
+    await params.result_callback({"location": "Berlin"})
 
 async def main():
     # 1. Initialize Daily Transport
@@ -107,7 +148,6 @@ async def main():
         logger.error("Please set DAILY_API_KEY and DAILY_ROOM_URL in your .env file")
         return
 
-    # Fetch a meeting token
     async with aiohttp.ClientSession() as session:
         headers = {"Authorization": f"Bearer {daily_api_key}"}
         room_name = daily_room_url.split("/")[-1]
@@ -119,8 +159,7 @@ async def main():
             if r.status != 200:
                 logger.error(f"Failed to get Daily token: {await r.text()}")
                 return
-            data = await r.json()
-            token = data["token"]
+            token = (await r.json())["token"]
 
     transport = DailyTransport(
         room_url=daily_room_url,
@@ -135,24 +174,22 @@ async def main():
     )
 
     # 2. Initialize Deepslate LLM Service
-    try:
-        opts = DeepslateOptions.from_env(
-            system_prompt="You are a friendly and helpful AI assistant. Keep your answers concise."
-        )
-    except ValueError as e:
-        logger.error(e)
-        return
+    opts = DeepslateOptions.from_env(
+        system_prompt="You are a friendly and helpful AI assistant. Keep your answers concise."
+    )
+    tts = ElevenLabsTtsConfig.from_env()
+    llm = DeepslateRealtimeLLMService(options=opts, tts_config=tts)
 
-    llm = DeepslateRealtimeLLMService(options=opts)
+    # Register function handlers
+    llm.register_function("lookup_weather", lookup_weather)
+    llm.register_function("get_current_location", get_current_location)
 
     # 3. Build the Pipeline
-    pipeline = Pipeline([
-        transport.input(),
-        llm,
-        transport.output(),
-    ])
+    pipeline = Pipeline([transport.input(), llm, transport.output()])
+    task = PipelineTask(pipeline, params=PipelineParams(allow_interruptions=True))
 
-    task = PipelineTask(pipeline, PipelineParams(allow_interruptions=True))
+    # Sync tool definitions with Deepslate (queued after StartFrame)
+    await task.queue_frame(LLMSetToolsFrame(tools=TOOLS))
 
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(transport, participant):
@@ -338,7 +375,7 @@ The Deepslate service processes and emits the following Pipecat frames:
 - `LLMFullResponseEndFrame` - Marks the end of AI response
 - `LLMTextFrame` - Text transcript of AI response
 - `TTSTextFrame` - Text for TTS (only if no server-side TTS configured)
-- `AudioRawFrame` - PCM audio output (if server-side TTS configured)
+- `OutputAudioRawFrame` - PCM audio output (if server-side TTS configured)
 - `InterruptionFrame` - User interrupted AI response (buffer clearing signal)
 - `FunctionCallRequestFrame` - Request to execute a function/tool
 - `ErrorFrame` - Error occurred during processing
@@ -409,31 +446,49 @@ pipeline = Pipeline([
 
 ### Function Calling
 
-Deepslate supports function/tool calling through Pipecat's standard function calling interface:
+Deepslate supports function/tool calling via Pipecat's `register_function` API. Define your tools as OpenAI-style JSON schemas, register async handlers, and push the definitions through the pipeline before it starts:
 
 ```python
-from pipecat.frames.frames import FunctionCallRequestFrame, FunctionCallResultFrame
+import random
+from pipecat.frames.frames import LLMSetToolsFrame
+from pipecat.services.llm_service import FunctionCallParams
 
-# In your pipeline processor, handle function requests
-async def handle_function_call(frame: FunctionCallRequestFrame):
-    import json
-    
-    function_name = frame.function_name
-    arguments = json.loads(frame.arguments)
-    
-    # Execute the function
-    if function_name == "get_weather":
-        result = get_weather(arguments["location"])
-    elif function_name == "book_appointment":
-        result = book_appointment(arguments["date"], arguments["time"])
-    
-    # Return result to Deepslate
-    result_frame = FunctionCallResultFrame(
-        tool_call_id=frame.tool_call_id,
-        result=json.dumps(result)
-    )
-    await llm.push_frame(result_frame)
+# 1. Define tools in OpenAI function-calling JSON schema format
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_weather",
+            "description": "Get the current weather for a given location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string", "description": "The city to look up."}
+                },
+                "required": ["location"],
+            },
+        },
+    },
+]
+
+# 2. Implement async handlers — call result_callback with your return value
+async def lookup_weather(params: FunctionCallParams):
+    result = {
+        "location": params.arguments.get("location", "unknown"),
+        "temperature_celsius": random.randint(10, 35),
+        "precipitation": random.choice(["none", "light", "moderate", "heavy"]),
+        "air_pressure_hpa": random.randint(900, 1100),
+    }
+    await params.result_callback(result)
+
+# 3. Register handlers on the LLM service
+llm.register_function("lookup_weather", lookup_weather)
+
+# 4. Queue tool definitions — they are synced to Deepslate after the pipeline starts
+await task.queue_frame(LLMSetToolsFrame(tools=TOOLS))
 ```
+
+See [`examples/simple_bot.py`](examples/simple_bot.py) for a complete working example with multiple tools.
 
 ### Error Handling Best Practices
 
@@ -598,22 +653,16 @@ logger.add(
 
 ## Examples
 
-### Basic Voice Bot
+### Daily.co Voice Bot (WebRTC)
 
-See [`examples/simple_bot.py`](examples/simple_bot.py) for a complete working example with Daily.co transport.
+[`examples/simple_bot.py`](examples/simple_bot.py) — A complete voice bot using Daily.co WebRTC transport with ElevenLabs TTS and two example tool calls (`lookup_weather`, `get_current_location`).
 
-### Additional Examples Needed
+```bash
+# Set credentials in examples/.env, then:
+python examples/simple_bot.py
+```
 
-We're actively working on expanding our examples collection. Contributions welcome for:
-
-- **Error Handling Patterns** - Robust error recovery and reconnection logic
-- **Multi-tool Function Calling** - Complex function calling with multiple tools
-- **Custom Transport Integration** - Examples with different WebRTC/telephony providers
-- **Context Management** - Dynamic system prompt updates and conversation history
-- **Audio Format Conversion** - Handling various input/output audio formats
-- **Production Deployment** - Docker, Kubernetes, and cloud deployment examples
-
-Want to contribute an example? Open a pull request!
+This example includes ElevenLabs TTS and tool call implementations and serves as the recommended starting point for new integrations.
 
 ## Architecture
 
