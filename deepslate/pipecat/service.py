@@ -24,7 +24,7 @@ from pipecat.frames.frames import (
     TextFrame,
     TTSTextFrame
 )
-from pipecat.services.llm_service import LLMService
+from pipecat.services.llm_service import FunctionCallParams, LLMService
 
 from .options import DeepslateOptions, DeepslateVadConfig, ElevenLabsTtsConfig
 from .proto import realtime_pb2 as proto
@@ -267,6 +267,30 @@ class DeepslateRealtimeLLMService(LLMService):
         )
         await self._send_msg(proto.ServiceBoundMessage(user_input=user_input))
 
+    async def _dispatch_function_call(self, call_id: str, function_name: str, args: dict):
+        """Look up a registered function handler and execute it, sending the result back to Deepslate."""
+        item = self._functions.get(function_name) or self._functions.get(None)
+        if not item:
+            logger.warning(f"Received tool call for unregistered function: '{function_name}'")
+            return
+
+        async def result_callback(result, *, properties=None):
+            result_str = result if isinstance(result, str) else json.dumps(result)
+            response = proto.ToolCallResponse(id=call_id, result=result_str)
+            await self._send_msg(proto.ServiceBoundMessage(tool_call_response=response))
+
+        try:
+            await item.handler(FunctionCallParams(
+                function_name=function_name,
+                tool_call_id=call_id,
+                arguments=args,
+                llm=self,
+                context=None,
+                result_callback=result_callback,
+            ))
+        except Exception as e:
+            logger.error(f"Error executing function '{function_name}': {e}")
+
     async def _handle_function_result(self, frame: FunctionCallResultFrame):
         """Forward function return values to Deepslate."""
         if not self._ws:
@@ -387,11 +411,4 @@ class DeepslateRealtimeLLMService(LLMService):
         elif payload_type == "tool_call_request":
             req = msg.tool_call_request
             args_dict = struct_to_dict(req.parameters) if req.HasField("parameters") else {}
-
-            await self.push_frame(
-                FunctionCallInProgressFrame(
-                    tool_call_id=req.id,
-                    function_name=req.name,
-                    arguments=json.dumps(args_dict)
-                )
-            )
+            asyncio.create_task(self._dispatch_function_call(req.id, req.name, args_dict))
