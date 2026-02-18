@@ -7,6 +7,7 @@ from loguru import logger
 
 from pipecat.frames.frames import (
     AudioRawFrame,
+    OutputAudioRawFrame,
     CancelFrame,
     EndFrame,
     ErrorFrame,
@@ -191,6 +192,9 @@ class DeepslateRealtimeLLMService(LLMService):
             # Used to update context/system prompts dynamically
             pass # TODO
 
+        else:
+            await self.push_frame(frame, direction)
+
 
     async def _sync_tools(self):
         """Syncs tool definitions with the Deepslate server."""
@@ -364,7 +368,7 @@ class DeepslateRealtimeLLMService(LLMService):
             transcript = msg.model_audio_chunk.transcript
 
             # Push raw PCM audio down the pipeline (e.g., towards WebRTC transport)
-            frame = AudioRawFrame(
+            frame = OutputAudioRawFrame(
                 audio=audio_bytes,
                 sample_rate=self._detected_sample_rate or 16000,
                 num_channels=self._detected_num_channels or 1,
