@@ -25,7 +25,7 @@ With `deepslate-pipecat`, you can build voice agents that leverage Deepslate's i
 ## Installation
 
 ```bash
-pip install deepslate-pipecat
+pip install git+https://github.com/deepslate-labs/deepslate-pipecat.git
 ```
 
 ### Requirements
@@ -41,6 +41,7 @@ The following dependencies are automatically installed:
 - `aiohttp>=3.10.0` - Async HTTP/WebSocket client
 - `protobuf>=5.26.0` - Protocol buffer serialization
 - `loguru>=0.7.2` - Structured logging
+- `websockets>=16.0` - WebSocket client/server implementation
 
 ## Prerequisites
 
