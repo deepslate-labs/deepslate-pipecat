@@ -12,7 +12,7 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 
 # Import our custom Deepslate Pipecat plugin
-from deepslate.pipecat import DeepslateOptions, DeepslateRealtimeLLMService
+from deepslate.pipecat import DeepslateOptions, DeepslateRealtimeLLMService, ElevenLabsTtsConfig
 
 load_dotenv(override=True)
 
@@ -64,8 +64,8 @@ async def main():
         logger.error(e)
         return
 
-    # Deepslate Opal takes raw audio in and streams raw audio out.
-    llm = DeepslateRealtimeLLMService(options=opts)
+    tts = ElevenLabsTtsConfig.from_env()
+    llm = DeepslateRealtimeLLMService(options=opts, tts_config=tts)
 
     # 3. Build the Pipeline
     pipeline = Pipeline([
