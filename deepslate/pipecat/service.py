@@ -13,7 +13,6 @@ from pipecat.frames.frames import (
     ErrorFrame,
     Frame,
     InterruptionFrame,
-    FunctionCallInProgressFrame,
     FunctionCallResultFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
@@ -21,8 +20,7 @@ from pipecat.frames.frames import (
     LLMSetToolsFrame,
     LLMTextFrame,
     StartFrame,
-    TextFrame,
-    TTSTextFrame
+    TextFrame
 )
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
@@ -95,7 +93,10 @@ class DeepslateRealtimeLLMService(LLMService):
                 if self._receive_task:
                     await self._receive_task
 
-                # If we get here, connection was closed
+                # If we get here, connection was closed — null out the websocket
+                # and reset session state before reconnecting.
+                self._ws = None
+                self._session_initialized = False
                 if not self._should_stop:
                     logger.info("WebSocket connection closed, attempting to reconnect...")
 
@@ -189,8 +190,7 @@ class DeepslateRealtimeLLMService(LLMService):
                 await self._sync_tools()
 
         elif isinstance(frame, LLMMessagesUpdateFrame):
-            # Used to update context/system prompts dynamically
-            pass # TODO
+            await self._handle_messages_update(frame)
 
         else:
             await self.push_frame(frame, direction)
@@ -212,6 +212,19 @@ class DeepslateRealtimeLLMService(LLMService):
 
         update_request = proto.UpdateToolDefinitionsRequest(tool_definitions=tool_definitions)
         await self._send_msg(proto.ServiceBoundMessage(update_tool_definitions_request=update_request))
+
+    async def _handle_messages_update(self, frame: LLMMessagesUpdateFrame):
+        """Handle LLMMessagesUpdateFrame by re-syncing tools and optionally triggering inference.
+
+        Re-syncs the current tool definitions with the server so the updated context is
+        accompanied by a fresh tool configuration. If run_llm is True and the session is
+        active, a TriggerInference is also sent.
+        """
+        if self._session_initialized:
+            await self._sync_tools()
+
+        if frame.run_llm and self._session_initialized and self._ws:
+            await self._send_msg(proto.ServiceBoundMessage(trigger_inference=proto.TriggerInference()))
 
     async def _handle_audio_input(self, frame: AudioRawFrame):
         """Forward PCM audio from Pipecat to Deepslate."""
@@ -350,6 +363,9 @@ class DeepslateRealtimeLLMService(LLMService):
 
     async def _send_msg(self, msg: proto.ServiceBoundMessage):
         """Helper to serialize and push the Proto down the websocket."""
+        if not self._ws or self._ws.closed:
+            logger.debug("Dropping outbound message: WebSocket is not open.")
+            return
         try:
             await self._ws.send_bytes(msg.SerializeToString())
         except Exception as e:
