@@ -21,6 +21,7 @@ With `deepslate-pipecat`, you can build voice agents that leverage Deepslate's i
 - **Automatic Interruption Handling** - Native support for interruptions with buffer clearing
 - **Frame-based Architecture** - Seamless integration with Pipecat's frame pipeline model
 - **Dynamic Audio Configuration** - Automatically adapts to audio format changes during runtime
+- **Dynamic Context Injection** - Append user or system messages to an active session mid-conversation via `LLMMessagesAppendFrame`
 
 ## Installation
 
@@ -367,7 +368,9 @@ The Deepslate service processes and emits the following Pipecat frames:
 - `AudioRawFrame` - PCM audio from user (sent to Deepslate for STT + inference)
 - `TextFrame` - Text input from user (sent to Deepslate for inference)
 - `FunctionCallResultFrame` - Results from executed functions (sent back to Deepslate)
-- `LLMMessagesUpdateFrame` - Context/message history updates
+- `LLMMessagesAppendFrame` - Appends messages to the active session context (see [Dynamic Context Injection](#dynamic-context-injection))
+- `LLMMessagesUpdateFrame` - Re-syncs tool definitions and optionally triggers inference
+- `LLMSetToolsFrame` - Updates the active tool/function definitions
 - `StartFrame`, `EndFrame`, `CancelFrame` - Lifecycle management
 
 **Output Frames (Emitted):**
@@ -489,6 +492,80 @@ await task.queue_frame(LLMSetToolsFrame(tools=TOOLS))
 ```
 
 See [`examples/simple_bot.py`](examples/simple_bot.py) for a complete working example with multiple tools.
+
+### Dynamic Context Injection
+
+You can inject messages into an active session mid-conversation using `LLMMessagesAppendFrame`. This is useful for silently adding user context, triggering inference with extra instructions, or combining both in a single frame.
+
+#### Role behaviour
+
+| Role | What happens | Triggers inference? |
+|---|---|---|
+| `user` | Sent as a `UserInput` text packet with `NO_TRIGGER` — added to conversation history | Only if `run_llm=True` |
+| `system` | Collected and forwarded as `extra_instructions` on `TriggerInference` | Only if `run_llm=True` |
+| `assistant` | **Not supported** — logged as a warning; the Deepslate protocol has no mechanism to inject assistant turns | — |
+
+> **Note on system role:** `extra_instructions` are ephemeral — they influence only the inference turn triggered by that frame, not subsequent turns. To set a persistent system prompt, provide it in `DeepslateOptions.system_prompt` before the session starts.
+
+#### Silent user-context injection (`run_llm=False`)
+
+Inject a fact into the conversation history without triggering a response. The bot will have access to the information on follow-up turns:
+
+```python
+from pipecat.frames.frames import LLMMessagesAppendFrame
+
+# Inject silently — bot does NOT respond automatically
+await task.queue_frame(
+    LLMMessagesAppendFrame(
+        messages=[
+            {"role": "user", "content": "My name is Alice and I'm from Paris."},
+        ],
+        run_llm=False,
+    )
+)
+
+# Bot can now answer "What is my name?" or "Where am I from?"
+```
+
+#### System instruction with immediate inference (`run_llm=True`)
+
+Inject a system instruction and trigger a response in one step. The system content is passed as `extra_instructions` on the `TriggerInference` message:
+
+```python
+await task.queue_frame(
+    LLMMessagesAppendFrame(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are now a professional chef assistant. "
+                    "Greet the user and ask how you can help with their cooking."
+                ),
+            },
+        ],
+        run_llm=True,  # Bot speaks immediately
+    )
+)
+```
+
+#### Multi-message injection
+
+User and system messages can be combined in a single frame. All `user` packets are sent first (in order), then a single `TriggerInference` is sent carrying any `system` content as `extra_instructions`:
+
+```python
+await task.queue_frame(
+    LLMMessagesAppendFrame(
+        messages=[
+            {"role": "user", "content": "My favourite food is sushi."},
+            {
+                "role": "system",
+                "content": "Respond with enthusiasm and suggest two creative sushi recipes.",
+            },
+        ],
+        run_llm=True,
+    )
+)
+```
 
 ### Error Handling Best Practices
 
