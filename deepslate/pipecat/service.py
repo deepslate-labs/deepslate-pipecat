@@ -16,6 +16,7 @@ from pipecat.frames.frames import (
     FunctionCallResultFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    LLMMessagesAppendFrame,
     LLMMessagesUpdateFrame,
     LLMSetToolsFrame,
     LLMTextFrame,
@@ -189,6 +190,9 @@ class DeepslateRealtimeLLMService(LLMService):
             if self._session_initialized:
                 await self._sync_tools()
 
+        elif isinstance(frame, LLMMessagesAppendFrame):
+            await self._handle_messages_append(frame)
+
         elif isinstance(frame, LLMMessagesUpdateFrame):
             await self._handle_messages_update(frame)
 
@@ -212,6 +216,64 @@ class DeepslateRealtimeLLMService(LLMService):
 
         update_request = proto.UpdateToolDefinitionsRequest(tool_definitions=tool_definitions)
         await self._send_msg(proto.ServiceBoundMessage(update_tool_definitions_request=update_request))
+
+    async def _handle_messages_append(self, frame: LLMMessagesAppendFrame):
+        """Handle LLMMessagesAppendFrame by injecting messages into the active session.
+
+        If ``run_llm`` is True and the session is active, a TriggerInference is sent
+        after all messages have been injected.
+        """
+        if not self._ws:
+            return
+
+        # Ensure a session is open (mirrors the text-input path for text-only pipelines)
+        if not self._session_initialized:
+            self._detected_sample_rate = 16000
+            self._detected_num_channels = 1
+            await self._send_initialize_session()
+            self._session_initialized = True
+
+        system_parts: List[str] = []
+
+        for message in frame.messages:
+            role = message.get("role", "")
+            content = message.get("content", "")
+
+            # Normalise content: OpenAI-style content can be a list of blocks
+            if isinstance(content, list):
+                text_parts = [
+                    block.get("text", "") for block in content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                ]
+                content = " ".join(text_parts)
+
+            if not content:
+                continue
+
+            if role == "user":
+                self._packet_id_counter += 1
+                user_input = proto.UserInput(
+                    packet_id=self._packet_id_counter,
+                    mode=proto.InferenceTriggerMode.NO_TRIGGER,
+                    text_data=proto.TextData(data=content),
+                )
+                await self._send_msg(proto.ServiceBoundMessage(user_input=user_input))
+
+            elif role == "system":
+                system_parts.append(content)
+
+            else:
+                logger.warning(
+                    f"LLMMessagesAppendFrame: role '{role}' cannot be injected into "
+                    "Deepslate session — only 'user' and 'system' roles are supported."
+                )
+
+        if frame.run_llm and self._session_initialized and self._ws:
+            extra = " ".join(system_parts) if system_parts else None
+            trigger = proto.TriggerInference()
+            if extra:
+                trigger.extra_instructions = extra
+            await self._send_msg(proto.ServiceBoundMessage(trigger_inference=trigger))
 
     async def _handle_messages_update(self, frame: LLMMessagesUpdateFrame):
         """Handle LLMMessagesUpdateFrame by re-syncing tools and optionally triggering inference.
