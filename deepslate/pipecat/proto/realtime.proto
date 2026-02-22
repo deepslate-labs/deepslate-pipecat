@@ -206,6 +206,7 @@ message InitializeSessionRequest {
  */
 message ReconfigureSessionRequest {
   optional AudioLineConfiguration input_audio_line = 1;
+  optional InferenceConfiguration inference_configuration = 2;
 }
 
 /*
