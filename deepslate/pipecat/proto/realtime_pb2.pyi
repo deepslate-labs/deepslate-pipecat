@@ -132,10 +132,12 @@ class InitializeSessionRequest(_message.Message):
     def __init__(self, input_audio_line: _Optional[_Union[AudioLineConfiguration, _Mapping]] = ..., output_audio_line: _Optional[_Union[AudioLineConfiguration, _Mapping]] = ..., vad_configuration: _Optional[_Union[VadConfiguration, _Mapping]] = ..., inference_configuration: _Optional[_Union[InferenceConfiguration, _Mapping]] = ..., tts_configuration: _Optional[_Union[TtsConfiguration, _Mapping]] = ...) -> None: ...
 
 class ReconfigureSessionRequest(_message.Message):
-    __slots__ = ("input_audio_line",)
+    __slots__ = ("input_audio_line", "inference_configuration")
     INPUT_AUDIO_LINE_FIELD_NUMBER: _ClassVar[int]
+    INFERENCE_CONFIGURATION_FIELD_NUMBER: _ClassVar[int]
     input_audio_line: AudioLineConfiguration
-    def __init__(self, input_audio_line: _Optional[_Union[AudioLineConfiguration, _Mapping]] = ...) -> None: ...
+    inference_configuration: InferenceConfiguration
+    def __init__(self, input_audio_line: _Optional[_Union[AudioLineConfiguration, _Mapping]] = ..., inference_configuration: _Optional[_Union[InferenceConfiguration, _Mapping]] = ...) -> None: ...
 
 class AudioData(_message.Message):
     __slots__ = ("data",)

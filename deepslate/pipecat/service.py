@@ -20,6 +20,7 @@ from pipecat.frames.frames import (
     LLMMessagesUpdateFrame,
     LLMSetToolsFrame,
     LLMTextFrame,
+    LLMUpdateSettingsFrame,
     StartFrame,
     TextFrame
 )
@@ -196,6 +197,9 @@ class DeepslateRealtimeLLMService(LLMService):
         elif isinstance(frame, LLMMessagesUpdateFrame):
             await self._handle_messages_update(frame)
 
+        elif isinstance(frame, LLMUpdateSettingsFrame):
+            await self._handle_update_settings(frame)
+
         else:
             await self.push_frame(frame, direction)
 
@@ -287,6 +291,26 @@ class DeepslateRealtimeLLMService(LLMService):
 
         if frame.run_llm and self._session_initialized and self._ws:
             await self._send_msg(proto.ServiceBoundMessage(trigger_inference=proto.TriggerInference()))
+
+    async def _handle_update_settings(self, frame: LLMUpdateSettingsFrame):
+        """Apply runtime setting changes. Currently handles system_prompt."""
+        new_prompt = frame.settings.get("system_prompt")
+        if new_prompt is None:
+            return
+        self._opts.system_prompt = new_prompt
+        if self._session_initialized:
+            await self._sync_system_prompt()
+
+    async def _sync_system_prompt(self):
+        """Send the current system prompt to the server via ReconfigureSessionRequest."""
+        if not self._ws:
+            return
+        reconfig = proto.ReconfigureSessionRequest(
+            inference_configuration=proto.InferenceConfiguration(
+                system_prompt=self._opts.system_prompt
+            )
+        )
+        await self._send_msg(proto.ServiceBoundMessage(reconfigure_session_request=reconfig))
 
     async def _handle_audio_input(self, frame: AudioRawFrame):
         """Forward PCM audio from Pipecat to Deepslate."""
