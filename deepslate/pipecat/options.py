@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 
@@ -83,6 +84,22 @@ class DeepslateVadConfig:
     """Duration of audio to buffer before speech detection (milliseconds)."""
 
 
+class ElevenLabsLocation(Enum):
+    """ElevenLabs API endpoint region.
+
+    See: https://elevenlabs.io/docs/overview/administration/data-residency
+    """
+
+    US = "US"
+    """US endpoint (default): api.elevenlabs.io"""
+
+    EU = "EU"
+    """EU endpoint. Requires enterprise access to ElevenLabs."""
+
+    INDIA = "INDIA"
+    """India endpoint. Requires enterprise access to ElevenLabs."""
+
+
 @dataclass
 class ElevenLabsTtsConfig:
     """
@@ -99,12 +116,16 @@ class ElevenLabsTtsConfig:
     model_id: Optional[str] = None
     """Model ID (e.g., 'eleven_turbo_v2'). Uses ElevenLabs default if not set."""
 
+    location: ElevenLabsLocation = ElevenLabsLocation.US
+    """ElevenLabs API endpoint region. Defaults to US."""
+
     @classmethod
     def from_env(
         cls,
         api_key: Optional[str] = None,
         voice_id: Optional[str] = None,
         model_id: Optional[str] = None,
+        location: Optional[ElevenLabsLocation] = None,
     ) -> "ElevenLabsTtsConfig":
         """Create config, falling back to ELEVENLABS_... environment variables."""
         resolved_api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
@@ -125,4 +146,5 @@ class ElevenLabsTtsConfig:
             api_key=resolved_api_key,
             voice_id=resolved_voice_id,
             model_id=resolved_model_id,
+            location=location or ElevenLabsLocation.US,
         )
