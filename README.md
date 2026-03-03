@@ -72,6 +72,8 @@ ELEVENLABS_VOICE_ID=your_voice_id  # e.g., '21m00Tcm4TlvDq8ikWAM' for Rachel
 ELEVENLABS_MODEL_ID=eleven_turbo_v2  # optional, uses default if not set
 ```
 
+The API endpoint region is configured in code via `ElevenLabsLocation` — see [ElevenLabsLocation](#elevenlabslocation). `ElevenLabsLocation.US` works with all ElevenLabs accounts; `EU` and `INDIA` require ElevenLabs enterprise access.
+
 > **Note:** If you don't provide ElevenLabs TTS configuration, the service will emit `TTSTextFrame` objects that can be picked up by downstream Pipecat TTS services (like Cartesia, Azure TTS, etc.). However, context truncation during interruptions will not work without server-side TTS.
 
 ## Quick Start
@@ -95,7 +97,7 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 
-from deepslate.pipecat import DeepslateOptions, DeepslateRealtimeLLMService, ElevenLabsTtsConfig
+from deepslate.pipecat import DeepslateOptions, DeepslateRealtimeLLMService, ElevenLabsLocation, ElevenLabsTtsConfig
 
 load_dotenv(override=True)
 
@@ -304,18 +306,31 @@ Configure server-side text-to-speech using ElevenLabs (via Deepslate).
 
 #### Parameters
 
-| Parameter  | Type            | Default | Description                                                        |
-|------------|-----------------|---------|--------------------------------------------------------------------|
-| `api_key`  | `str`           | **Required** | Your ElevenLabs API key                                       |
-| `voice_id` | `str`           | **Required** | ElevenLabs voice ID (e.g., `'21m00Tcm4TlvDq8ikWAM'` for Rachel) |
-| `model_id` | `Optional[str]` | `None`  | ElevenLabs model ID (e.g., `'eleven_turbo_v2'`), uses default if not set |
+| Parameter  | Type                  | Default                   | Description                                                        |
+|------------|-----------------------|---------------------------|--------------------------------------------------------------------|
+| `api_key`  | `str`                 | **Required**              | Your ElevenLabs API key                                            |
+| `voice_id` | `str`                 | **Required**              | ElevenLabs voice ID (e.g., `'21m00Tcm4TlvDq8ikWAM'` for Rachel)  |
+| `model_id` | `Optional[str]`       | `None`                    | ElevenLabs model ID (e.g., `'eleven_turbo_v2'`), uses default if not set |
+| `location` | `ElevenLabsLocation`  | `ElevenLabsLocation.US`   | ElevenLabs API endpoint region (see [ElevenLabsLocation](#elevenlabslocation)) |
+
+#### ElevenLabsLocation
+
+Selects which regional ElevenLabs API endpoint Deepslate will use for TTS synthesis.
+
+| Value                    | Endpoint                     | Notes                                        |
+|--------------------------|------------------------------|----------------------------------------------|
+| `ElevenLabsLocation.US`  | `api.elevenlabs.io`          | Default — works with all ElevenLabs accounts |
+| `ElevenLabsLocation.EU`  | EU data-residency endpoint   | Requires ElevenLabs enterprise access        |
+| `ElevenLabsLocation.INDIA` | India data-residency endpoint | Requires ElevenLabs enterprise access      |
+
+See the [ElevenLabs data residency documentation](https://elevenlabs.io/docs/overview/administration/data-residency) for details on enterprise endpoint access.
 
 #### Factory Method: `from_env()`
 
 ```python
-from deepslate.pipecat import ElevenLabsTtsConfig, DeepslateRealtimeLLMService
+from deepslate.pipecat import ElevenLabsLocation, ElevenLabsTtsConfig, DeepslateRealtimeLLMService
 
-# Load from environment variables
+# Load from environment variables (defaults to US endpoint)
 tts_config = ElevenLabsTtsConfig.from_env()
 
 llm = DeepslateRealtimeLLMService(
@@ -323,12 +338,16 @@ llm = DeepslateRealtimeLLMService(
     tts_config=tts_config
 )
 
+# Use the EU endpoint (requires ElevenLabs enterprise access)
+# tts_config = ElevenLabsTtsConfig.from_env(location=ElevenLabsLocation.EU)
+
 # Manual configuration
-tts_config = ElevenLabsTtsConfig(
-    api_key="your_elevenlabs_key",
-    voice_id="21m00Tcm4TlvDq8ikWAM",  # Rachel voice
-    model_id="eleven_turbo_v2"
-)
+# tts_config = ElevenLabsTtsConfig(
+#     api_key="your_elevenlabs_key",
+#     voice_id="21m00Tcm4TlvDq8ikWAM",  # Rachel voice
+#     model_id="eleven_turbo_v2",
+#     location=ElevenLabsLocation.US,   # explicit, but this is the default
+# )
 ```
 
 #### Server-side vs Client-side TTS

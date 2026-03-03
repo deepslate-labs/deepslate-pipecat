@@ -26,9 +26,15 @@ from pipecat.frames.frames import (
 )
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
-from .options import DeepslateOptions, DeepslateVadConfig, ElevenLabsTtsConfig
+from .options import DeepslateOptions, DeepslateVadConfig, ElevenLabsLocation, ElevenLabsTtsConfig
 from .proto import realtime_pb2 as proto
 from .utils import dict_to_struct, struct_to_dict, duration_from_ms, build_ws_url
+
+_ELEVENLABS_LOCATION_MAP = {
+    ElevenLabsLocation.US: proto.ElevenLabsLocation.US,
+    ElevenLabsLocation.EU: proto.ElevenLabsLocation.EU,
+    ElevenLabsLocation.INDIA: proto.ElevenLabsLocation.INDIA,
+}
 
 
 class DeepslateRealtimeLLMService(LLMService):
@@ -410,7 +416,8 @@ class DeepslateRealtimeLLMService(LLMService):
         if self._tts_config:
             el_config = proto.ElevenLabsTtsConfiguration(
                 api_key=self._tts_config.api_key,
-                voice_id=self._tts_config.voice_id
+                voice_id=self._tts_config.voice_id,
+                location=_ELEVENLABS_LOCATION_MAP[self._tts_config.location],
             )
             if self._tts_config.model_id:
                 el_config.model_id = self._tts_config.model_id
