@@ -72,7 +72,7 @@ ELEVENLABS_VOICE_ID=your_voice_id  # e.g., '21m00Tcm4TlvDq8ikWAM' for Rachel
 ELEVENLABS_MODEL_ID=eleven_turbo_v2  # optional, uses default if not set
 ```
 
-The API endpoint region is configured in code via `ElevenLabsLocation` — see [ElevenLabsLocation](#elevenlabslocation).
+The API endpoint region is configured in code via `ElevenLabsLocation` — see [ElevenLabsLocation](#elevenlabslocation). `ElevenLabsLocation.US` works with all ElevenLabs accounts; `EU` and `INDIA` require ElevenLabs enterprise access.
 
 > **Note:** If you don't provide ElevenLabs TTS configuration, the service will emit `TTSTextFrame` objects that can be picked up by downstream Pipecat TTS services (like Cartesia, Azure TTS, etc.). However, context truncation during interruptions will not work without server-side TTS.
 
@@ -339,15 +339,15 @@ llm = DeepslateRealtimeLLMService(
 )
 
 # Use the EU endpoint (requires ElevenLabs enterprise access)
-tts_config = ElevenLabsTtsConfig.from_env(location=ElevenLabsLocation.EU)
+# tts_config = ElevenLabsTtsConfig.from_env(location=ElevenLabsLocation.EU)
 
 # Manual configuration
-tts_config = ElevenLabsTtsConfig(
-    api_key="your_elevenlabs_key",
-    voice_id="21m00Tcm4TlvDq8ikWAM",  # Rachel voice
-    model_id="eleven_turbo_v2",
-    location=ElevenLabsLocation.US,   # explicit, but this is the default
-)
+# tts_config = ElevenLabsTtsConfig(
+#     api_key="your_elevenlabs_key",
+#     voice_id="21m00Tcm4TlvDq8ikWAM",  # Rachel voice
+#     model_id="eleven_turbo_v2",
+#     location=ElevenLabsLocation.US,   # explicit, but this is the default
+# )
 ```
 
 #### Server-side vs Client-side TTS
