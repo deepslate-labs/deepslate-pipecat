@@ -24,6 +24,7 @@ from pipecat.frames.frames import (
     StartFrame,
     TextFrame
 )
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 
 from .options import DeepslateOptions, DeepslateVadConfig, ElevenLabsLocation, ElevenLabsTtsConfig
@@ -192,8 +193,17 @@ class DeepslateRealtimeLLMService(LLMService):
             await self._handle_function_result(frame)
 
         elif isinstance(frame, LLMSetToolsFrame):
-            # Capture tool definitions and sync with server
-            self._tools = frame.tools
+            # Capture tool definitions and sync with server.
+            # In pipecat >=0.0.104, frame.tools may be a ToolsSchema object
+            # instead of a plain List[dict].  Normalise to List[dict] so that
+            # _sync_tools can iterate and call .get() on each entry.
+            if isinstance(frame.tools, ToolsSchema):
+                self._tools = [
+                    {"type": "function", "function": schema.to_default_dict()}
+                    for schema in frame.tools.standard_tools
+                ]
+            else:
+                self._tools = frame.tools
             if self._session_initialized:
                 await self._sync_tools()
 
